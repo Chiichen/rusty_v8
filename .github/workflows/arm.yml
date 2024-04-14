@@ -30,7 +30,7 @@ jobs:
       - name : Package
         run: |
           mkdir -p release
-          cd target/armv7-unknown-linux-musleabihf/gn_out/obj
+          cd target/armv7-unknown-linux-musleabihf/release/gn_out/obj
           ls -ahl
           tar czvf $GITHUB_WORKSPACE/release/librustyv8.tar.gz ./librusty_v8.a
       - name: Upload to Github
