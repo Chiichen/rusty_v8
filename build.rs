@@ -141,7 +141,8 @@ fn build_v8() {
     gn_args.push("host_cpu=\"arm64\"".to_string())
   }
 
-  if cfg!(target_arch = "armv7"){
+  if cfg!(target_arch = "armv7") {
+    println!("building armv7 target");
     gn_args.push("host_cpu=\"arm64\"".to_string())
   }
 
