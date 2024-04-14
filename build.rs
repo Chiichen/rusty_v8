@@ -290,8 +290,10 @@ fn platform() -> String {
 
   let arch = if cfg!(target_arch = "x86_64") {
     "amd64"
-  } else if cfg!(target_arch = "aarch64") || cfg!(target_arch = "armv7") {
+  } else if cfg!(target_arch = "aarch64") {
     "arm64"
+  } else if cfg!(target_arch = "arm") {
+    "arm"
   } else {
     "unknown"
   };
