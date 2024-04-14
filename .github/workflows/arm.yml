@@ -1,0 +1,37 @@
+name: build-arm
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rust
+        uses: dsherret/rust-toolchain-file@v1
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11.x
+          architecture: x64
+      - name: Install ToolChain
+        run: |
+            bash ./install_toolchain.sh
+      - name: Install Rust Target
+        run: |
+            rustup target add armv7-unknown-linux-musleabihf
+      - name: Build
+        run: |
+          V8_FROM_SOURCE=1 cargo build --release --target armv7-unknown-linux-musleabihf 
+      - name : Package
+        run: |
+          mkdir -p release
+          cd target/armv7-unknown-linux-musleabihf
+          ls -ahl
+          tar czvf $GITHUB_WORKSPACE/release/librustyv8.tar.gz .
+      - name: Upload to Github
+        uses: actions/upload-artifact@v4
+        with:
+          name: librustyv8.tar.gz
+          path: |
+            release/*.tar.gz
