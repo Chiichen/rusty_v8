@@ -143,7 +143,10 @@ fn build_v8() {
 
   if cfg!(target_arch = "armv7") {
     println!("building armv7 target");
-    gn_args.push("target_cpu=\"arm64\"".to_string())
+    gn_args.push(r#"target_cpu="arm64""#.to_string());
+    gn_args.push("use_sysroot=true".to_string());
+    maybe_install_sysroot("arm64");
+    maybe_install_sysroot("amd64");
   }
 
   if env::var_os("DISABLE_CLANG").is_some() {
