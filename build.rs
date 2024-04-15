@@ -184,8 +184,7 @@ fn build_v8() {
     if target_triple == "armv7-unknown-linux-musleabihf"{
       println!("building arm target");
       gn_args.push(r#"target_cpu="arm""#.to_string());
-      gn_args.push("use_sysroot=true".to_string());
-      maybe_install_sysroot("arm");
+      gn_args.push(r#"v8_target_cpu="arm""#.to_string());
     }
     // cross-compilation setup
     if target_triple == "aarch64-unknown-linux-gnu"
