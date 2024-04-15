@@ -141,13 +141,6 @@ fn build_v8() {
     gn_args.push("host_cpu=\"arm64\"".to_string())
   }
 
-  if cfg!(target_arch = "arm") {
-    println!("building arm target");
-    gn_args.push(r#"target_cpu="arm""#.to_string());
-    gn_args.push("use_sysroot=true".to_string());
-    maybe_install_sysroot("arm");
-  }
-
   if env::var_os("DISABLE_CLANG").is_some() {
     gn_args.push("is_clang=false".into());
     // -gline-tables-only is Clang-only
@@ -187,6 +180,13 @@ fn build_v8() {
   let target_triple = env::var("TARGET").unwrap();
   // check if the target triple describes a non-native environment
   if target_triple != env::var("HOST").unwrap() {
+
+    if target_triple == "armv7-unknown-linux-musleabihf"{
+      println!("building arm target");
+      gn_args.push(r#"target_cpu="arm""#.to_string());
+      gn_args.push("use_sysroot=true".to_string());
+      maybe_install_sysroot("arm");
+    }
     // cross-compilation setup
     if target_triple == "aarch64-unknown-linux-gnu"
       || target_triple == "aarch64-linux-android"
