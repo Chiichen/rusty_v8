@@ -23,14 +23,14 @@ jobs:
             bash ./install_toolchain.sh
       - name: Install Rust Target
         run: |
-            rustup target add armv7-unknown-linux-musleabihf
+            rustup target add armv7-unknown-linux-gnueabihf
       - name: Build
         run: |
-          V8_FROM_SOURCE=1 cargo build --target armv7-unknown-linux-musleabihf --release 
+          V8_FROM_SOURCE=1 cargo build --target armv7-unknown-linux-gnueabihf --release 
       - name : Package
         run: |
           mkdir -p release
-          cd target/armv7-unknown-linux-musleabihf/release/gn_out/obj
+          cd target/armv7-unknown-linux-gnueabihf/release/gn_out/obj
           ls -ahl
           tar czvf $GITHUB_WORKSPACE/release/librustyv8.tar.gz ./librusty_v8.a
       - name: Upload to Github
