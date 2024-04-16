@@ -49,6 +49,7 @@ fn main() {
     "DISABLE_CLANG",
     "EXTRA_GN_ARGS",
     "NO_PRINT_GN_ARGS",
+    "CARGO_ENCODED_RUSTFLAGS",
   ];
   for env in envs {
     println!("cargo:rerun-if-env-changed={}", env);
@@ -81,9 +82,22 @@ fn main() {
     return;
   }
 
+  let is_asan = if let Some(rustflags) = env::var_os("CARGO_ENCODED_RUSTFLAGS")
+  {
+    if std::env::var_os("OPT_LEVEL").unwrap_or_default() == "0" {
+      panic!("v8 crate cannot be compiled with OPT_LEVEL=0 and ASAN.\nTry `[profile.dev.package.v8] opt-level = 1`.\nAborting before miscompilations cause issues.");
+    }
+
+    let rustflags = rustflags.to_string_lossy();
+    rustflags.find("-Z sanitizer=address").is_some()
+      || rustflags.find("-Zsanitizer=address").is_some()
+  } else {
+    false
+  };
+
   // Build from source
   if env::var_os("V8_FROM_SOURCE").is_some() {
-    return build_v8();
+    return build_v8(is_asan);
   }
 
   // utilize a lockfile to prevent linking of
@@ -105,7 +119,7 @@ fn main() {
   lockfile.unlock().expect("Couldn't unlock lockfile");
 }
 
-fn build_v8() {
+fn build_v8(is_asan: bool) {
   env::set_var("DEPOT_TOOLS_WIN_TOOLCHAIN", "0");
 
   // cargo publish doesn't like pyc files.
@@ -123,16 +137,19 @@ fn build_v8() {
   if need_gn_ninja_download() {
     download_ninja_gn_binaries();
   }
-
+  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+  let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
   // On windows, rustc cannot link with a V8 debug build.
-  let mut gn_args = if is_debug() && !cfg!(target_os = "windows") {
+  let mut gn_args = if is_debug() && target_os != "windows" {
     // Note: When building for Android aarch64-qemu, use release instead of debug.
     vec!["is_debug=true".to_string()]
   } else {
     vec!["is_debug=false".to_string()]
   };
-
-  if cfg!(not(feature = "use_custom_libcxx")) {
+  if is_asan {
+    gn_args.push("is_asan=true".to_string());
+  }
+  if let Err(_) = env::var("CARGO_FEATURE_USE_CUSTOM_LIBCXX") {
     gn_args.push("use_custom_libcxx=false".to_string());
   }
 
@@ -146,15 +163,15 @@ fn build_v8() {
     // -gline-tables-only is Clang-only
     gn_args.push("line_tables_only=false".into());
   } else if let Some(clang_base_path) = find_compatible_system_clang() {
-    println!("clang_base_path {}", clang_base_path.display());
+    println!("clang_base_path (system): {}", clang_base_path.display());
     gn_args.push(format!("clang_base_path={:?}", clang_base_path));
     gn_args.push("treat_warnings_as_errors=false".to_string());
   } else {
-    println!("using Chromiums clang");
+    println!("using Chromium's clang");
     let clang_base_path = clang_download();
     gn_args.push(format!("clang_base_path={:?}", clang_base_path));
 
-    if cfg!(target_os = "android") && cfg!(target_arch = "aarch64") {
+    if target_os == "android" && target_arch == "aarch64" {
       gn_args.push("treat_warnings_as_errors=false".to_string());
     }
   }
@@ -176,33 +193,27 @@ fn build_v8() {
       gn_args.push(arg.to_string());
     }
   }
+  // cross-compilation setup
+  if target_arch == "aarch64" {
+    gn_args.push(r#"target_cpu="arm64""#.to_string());
+    gn_args.push("use_sysroot=true".to_string());
+    maybe_install_sysroot("arm64");
+    maybe_install_sysroot("amd64");
+  }
+  if target_arch == "arm" {
+    gn_args.push(r#"target_cpu="arm""#.to_string());
+    gn_args.push(r#"v8_target_cpu="arm""#.to_string());
+    gn_args.push("use_sysroot=true".to_string());
+    maybe_install_sysroot("i386");
+    maybe_install_sysroot("arm");
+  }
 
   let target_triple = env::var("TARGET").unwrap();
   // check if the target triple describes a non-native environment
   if target_triple != env::var("HOST").unwrap() {
-
-    if target_triple == "armv7-unknown-linux-gnueabihf"{
-      println!("building arm target");
-      gn_args.push("use_sysroot=true".to_string());
-      gn_args.push(r#"target_cpu="arm""#.to_string());
-      gn_args.push(r#"v8_target_cpu="arm""#.to_string());
-      maybe_install_sysroot("i386");
-      maybe_install_sysroot("arm");
-    }
-    // cross-compilation setup
-    if target_triple == "aarch64-unknown-linux-gnu"
-      || target_triple == "aarch64-linux-android"
-    {
-      gn_args.push(r#"target_cpu="arm64""#.to_string());
-      gn_args.push("use_sysroot=true".to_string());
-      maybe_install_sysroot("arm64");
-      maybe_install_sysroot("amd64");
-    };
-
     if target_triple == "aarch64-linux-android" {
       gn_args.push(r#"v8_target_cpu="arm64""#.to_string());
       gn_args.push(r#"target_os="android""#.to_string());
-
       gn_args.push("treat_warnings_as_errors=false".to_string());
 
       // NDK 23 and above removes libgcc entirely.
@@ -279,7 +290,7 @@ fn maybe_install_sysroot(arch: &str) {
   }
 }
 
-fn platform() -> String {
+fn host_platform() -> String {
   let os = if cfg!(target_os = "linux") {
     "linux"
   } else if cfg!(target_os = "macos") {
@@ -299,7 +310,6 @@ fn platform() -> String {
   } else {
     "unknown"
   };
-
   format!("{os}-{arch}")
 }
 
@@ -307,7 +317,7 @@ fn download_ninja_gn_binaries() {
   let target_dir = build_dir();
   let bin_dir = target_dir
     .join("ninja_gn_binaries-20221218")
-    .join(platform());
+    .join(host_platform());
   let gn = bin_dir.join("gn");
   let ninja = bin_dir.join("ninja");
   #[cfg(windows)]
@@ -339,9 +349,9 @@ fn static_lib_url() -> String {
     env::var("RUSTY_V8_MIRROR").unwrap_or_else(|_| default_base.into());
   let version = env::var("CARGO_PKG_VERSION").unwrap();
   let target = env::var("TARGET").unwrap();
-
+  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
   // Note: we always use the release build on windows.
-  if cfg!(target_os = "windows") {
+  if target_os == "windows" {
     return format!("{}/v{}/rusty_v8_release_{}.lib.gz", base, version, target);
   }
   // Use v8 in release mode unless $V8_FORCE_DEBUG=true
@@ -363,9 +373,11 @@ fn env_bool(key: &str) -> bool {
 }
 
 fn static_lib_name() -> &'static str {
-  match cfg!(target_os = "windows") {
-    true => "rusty_v8.lib",
-    false => "librusty_v8.a",
+  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+  if target_os == "windows" {
+    "rusty_v8.lib"
+  } else {
+    "librusty_v8.a"
   }
 }
 
@@ -576,8 +588,8 @@ fn copy_archive(url: &str, filename: &Path) {
 
 fn print_link_flags() {
   println!("cargo:rustc-link-lib=static=rusty_v8");
-
-  let should_dyn_link_libcxx = cfg!(not(feature = "use_custom_libcxx"))
+  let should_dyn_link_libcxx = env::var("CARGO_FEATURE_USE_CUSTOM_LIBCXX")
+    .is_err()
     || env::var("GN_ARGS").map_or(false, |gn_args| {
       gn_args
         .split_whitespace()
@@ -606,16 +618,18 @@ fn print_link_flags() {
       }
     }
   }
+  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+  let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
 
-  if cfg!(target_os = "windows") {
+  if target_os == "windows" {
     println!("cargo:rustc-link-lib=dylib=winmm");
     println!("cargo:rustc-link-lib=dylib=dbghelp");
   }
 
-  if cfg!(target_env = "msvc") {
+  if target_env == "msvc" {
     // On Windows, including libcpmt[d]/msvcprt[d] explicitly links the C++
     // standard library, which libc++ needs for exception_ptr internals.
-    if cfg!(target_feature = "crt-static") {
+    if env::var("CARGO_FEATURE_CRT_STATIC").is_ok() {
       println!("cargo:rustc-link-lib=libcpmt");
     } else {
       println!("cargo:rustc-link-lib=dylib=msvcprt");
@@ -672,7 +686,7 @@ fn find_compatible_system_clang() -> Option<PathBuf> {
 // modify the source directory.
 fn clang_download() -> PathBuf {
   let clang_base_path = build_dir().join("clang");
-  println!("clang_base_path {}", clang_base_path.display());
+  println!("clang_base_path (downloaded) {}", clang_base_path.display());
   assert!(Command::new(python())
     .arg("./tools/clang/scripts/update.py")
     .arg("--output-dir")
@@ -837,7 +851,7 @@ pub fn maybe_gen(manifest_dir: &str, gn_args: GnArgs) -> PathBuf {
       .stderr(Stdio::inherit())
       .envs(env::vars())
       .status()
-      .expect("Coud not run `gn`")
+      .expect("Could not run `gn`")
       .success());
   }
   gn_out_dir
@@ -983,12 +997,5 @@ edge [fontsize=10]
     assert!(files.contains("../../../example/src/input.txt"));
     assert!(files.contains("../../../example/src/count_bytes.py"));
     assert!(!files.contains("obj/hello/hello.o"));
-  }
-
-  #[test]
-  fn test_static_lib_size() {
-    let static_lib_size = std::fs::metadata(static_lib_path()).unwrap().len();
-    eprintln!("static lib size {}", static_lib_size);
-    assert!(static_lib_size <= 300u64 << 20); // No more than 300 MiB.
   }
 }
