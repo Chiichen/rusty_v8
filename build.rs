@@ -181,7 +181,7 @@ fn build_v8() {
   // check if the target triple describes a non-native environment
   if target_triple != env::var("HOST").unwrap() {
 
-    if target_triple == "armv7-unknown-linux-musleabihf"{
+    if target_triple == "armv7-unknown-linux-gnueabihf"{
       println!("building arm target");
       gn_args.push("use_sysroot=true".to_string());
       gn_args.push(r#"target_cpu="arm""#.to_string());
