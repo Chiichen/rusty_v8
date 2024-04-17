@@ -108,7 +108,8 @@ fn build_v8() {
   if need_gn_ninja_download() {
     download_ninja_gn_binaries();
   }
-
+  let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+  let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
   // On windows, rustc cannot link with a V8 debug build.
   let mut gn_args = if is_debug() && !cfg!(target_os = "windows") {
     // Note: When building for Android aarch64-qemu, use release instead of debug.
@@ -126,6 +127,13 @@ fn build_v8() {
     gn_args.push("host_cpu=\"arm64\"".to_string())
   }
 
+  if target_arch == "arm" {
+    gn_args.push(r#"target_cpu="arm""#.to_string());
+    gn_args.push(r#"v8_target_cpu="arm""#.to_string());
+    gn_args.push("use_sysroot=true".to_string());
+    maybe_install_sysroot("i386");
+    maybe_install_sysroot("arm");
+  }
   if let Some(clang_base_path) = find_compatible_system_clang() {
     println!("clang_base_path {}", clang_base_path.display());
     gn_args.push(format!("clang_base_path={:?}", clang_base_path));
